@@ -1,0 +1,16 @@
+{
+    "name": "General Organization Workflow for builds on Windows",
+    "description": "Workflow builds artifact name, analyzes it with Sonar and pushes to the Octopus Deploy. You should put your build instractions inside. Sonar Cloud builds would work for non-compiled langusges. More details here: https://sonarcloud.io/documentation/analysis/automatic-analysis/",
+    "iconName": "build-on-windows-icon",
+    "filePatterns": [
+        "*.html",
+        "*.py",
+        "*.js",
+        "*.ts",
+        "*.php*",
+        "*.go",
+        "*.scala",
+        "*.jruby",
+        "*rb"
+    ]
+}

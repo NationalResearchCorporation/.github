@@ -1,0 +1,152 @@
+# This workflow builds artifact name, builds and tests the application, analyzes it with Sonar and pushes to the Octopus Deploy
+# To configure this workflow:
+#
+# 1. Create build_properties.json. Instractions: https://github.com/NationalResearchCorporation/nrchealth-custom-actions
+# 2. Add your build instractions in the 'build step'
+# 3. Optionally review and change triggers and steps
+
+name: General Windows build
+
+on:
+  push:
+    branches: [ $default-branch ]
+  pull_request:
+    branches: [ $default-branch  ]
+
+# This job generates name of the artifact based on the properties in build_properties.json files. See details and options in nrchealth-custom-actions repo.
+jobs:
+  build_artifact_name:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      # checkout the private repo containing the action to run
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v2
+        with:
+          repository: NationalResearchCorporation/nrchealth-custom-actions
+          token: ${{ secrets.CUSTOM_ACTIONS_GIT_HUB_TOKEN }} # stored in GitHub secrets
+          path: ./.github/actions
+          ref: 'build-artifact-name-v.1-latest'
+      - name: build_artifact_name
+        id:   build_artifact_name
+        uses: ./.github/actions/build_artifact_name
+      - name: Upload artifact name
+        uses: actions/upload-artifact@v2
+        with:
+          name: artifact_name
+          path: ${{steps.build_artifact_name.outputs.file_path}}
+
+  # This job builds, tests and analyzes application with sonar
+  build:
+    needs: build_artifact_name
+    runs-on: windows-latest
+    steps:
+
+      # Getting artifact name from the previous job
+      - name: checkout
+        uses: actions/checkout@v1
+      - name: Download Artifact Name
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact_name
+      - name: Get artifact name
+        id: get_artifact
+        run: |
+          echo "::set-output name=name::$(cat package_name.txt)"
+
+      # YOUR BUILD INSTRACTIONS
+      - name: build
+        run: |
+          # Put your build instractions here. Make sure you used "${{steps.get_artifact.outputs.name}}.zip" as package name
+          
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: published_webapp
+          path: ./${{steps.get_artifact.outputs.name}}.zip
+
+
+  # This job uploads artifact to the Octopus Deploy
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+
+      # Getting artifact from the previous job
+      - name: Get the version
+        id: get_tag
+        run: |
+          echo "::set-output name=VERSION::$(echo ${{GITHUB.REF}} | cut -d'-' -f 2)"
+      - name: Download Artifact Name
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact_name
+      - name: Download Artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: published_webapp
+
+      # Installing Octopus CLI    
+      - name: install Octopus Deploy CLI
+        uses: OctopusDeploy/install-octocli@v1
+        with:
+          version: 7.4.2
+
+      # Connecting to the company VPN
+
+      - name: Install Open VPN
+        run: | 
+          sudo apt install apt-transport-https
+          sudo wget https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub
+          sudo apt-key add openvpn-repo-pkg-key.pub
+          sudo wget -O /etc/apt/sources.list.d/openvpn3.list https://swupdate.openvpn.net/community/openvpn3/repos/openvpn3-bionic.list
+          sudo apt update
+          sudo apt install openvpn3
+      - name: Start Open VPN 3
+        continue-on-error: true
+        env:
+          USER_CERT: ${{secrets.USER_CRT}}
+          USER_SECRET: ${{secrets.USER_KEY}}
+          CA_CERT: ${{secrets.CA_CRT}}
+        run: |
+          echo $CA_CERT >> /tmp/ca.crt
+          echo $USER_CERT >> /tmp/user.crt
+          cat /tmp/user.crt
+          echo $USER_SECRET >> /tmp/user.key
+          sudo cp .github/actions/connect_to_vpn/shared-services.ovpn /etc/openvpn3/
+          cd /tmp
+          ##Adding end of line and replace white-spaces with \n
+          sed 's/ /|/22' user.crt > copy.crt
+          sed 's/ /|/1' copy.crt > copy2.crt
+          cat copy2.crt | tr " " "\n" > copy3.crt
+          cat copy3.crt | tr "|" " " > user.crt
+          rm -rf copy*
+          ##Adding end of line and replace white-spaces with \n
+          sed 's/ /|/21' ca.crt > copy.crt
+          sed 's/ /|/1' copy.crt > copy2.crt
+          cat copy2.crt | tr " " "\n" > copy3.crt
+          cat copy3.crt | tr "|" " " > ca.crt
+          rm -rf copy*       
+          ##Adding end of line and replace white-spaces with \n
+          sed 's/ /|/31' user.key > copy.crt
+          sed 's/ /|/30' copy.crt > copy2.crt
+          sed 's/ /|/2' copy2.crt > copy.crt
+          sed 's/ /|/1' copy.crt > copy2.crt
+          cat copy2.crt | tr " " "\n" > copy3.crt
+          cat copy3.crt | tr "|" " " > user.key
+          ##
+          rm -rf copy* 
+          sudo cp -r /tmp/* /etc/openvpn3/
+          openvpn3 config-import --config /etc/openvpn3/shared-services.ovpn --name "DevProd"
+          openvpn3 session-start --config "DevProd" 
+          
+      # Pushing the artifact to OD
+      - name: Push to Octopus
+        run: |
+          package_name=`cat package_name.txt`
+          echo $package_name
+          octo push --package="$package_name.zip" --server="${{ secrets.OCTOPUS_SERVER }}" --apiKey="${{ secrets.OCTOPUS_APIKEY }}"
+
+
+

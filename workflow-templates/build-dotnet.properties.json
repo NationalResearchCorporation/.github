@@ -1,0 +1,8 @@
+{
+    "name": ".Net Organization Workflow",
+    "description": "Workflow builds artifact name, builds and tests the application, analyzes it with Sonar and pushes to the Octopus Deploy",
+    "iconName": "build-dotnet-icon",
+    "categories": [
+        "C#"
+    ]
+}

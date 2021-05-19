@@ -1,0 +1,216 @@
+# This workflow builds artifact name, builds and tests the application, analyzes it with Sonar and pushes to the Octopus Deploy
+# To configure this workflow:
+#
+# 1. Configure env vars below
+# 2. Create build_properties.json. Instractions: https://github.com/NationalResearchCorporation/nrchealth-custom-actions
+# 3. Optionally review  and change triggers and steps
+
+name: .Net Build
+
+on:
+  push:
+    branches: [ $default-branch ]
+  pull_request:
+    branches: [ $default-branch  ]
+
+env:
+  SLN_PATH: .\PlatformUserApi\PlatformUserApi.sln                                        # set this to your sln file path
+  CSPROJ_PATH: .\PlatformUserApi\NRC.Platform.User.API\NRC.Platform.User.API.csproj      # set this to the csproj file
+  PUBLISH_PATH: .\PlatformUserApi\publish                                                # set this to the publish path
+
+# This job generates name of the artifact based on the properties in build_properties.json files. See details and options in nrchealth-custom-actions repo.
+jobs:
+  build_artifact_name:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      # checkout the private repo containing the action to run
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v2
+        with:
+          repository: NationalResearchCorporation/nrchealth-custom-actions
+          token: ${{ secrets.CUSTOM_ACTIONS_GIT_HUB_TOKEN }} # stored in GitHub secrets
+          path: ./.github/actions
+          ref: 'build-artifact-name-v.1-latest'
+      - name: build_artifact_name
+        id:   build_artifact_name
+        uses: ./.github/actions/build_artifact_name
+      - name: Upload artifact name
+        uses: actions/upload-artifact@v2
+        with:
+          name: artifact_name
+          path: ${{steps.build_artifact_name.outputs.file_path}}
+
+  # This job builds, tests and analyzes application with sonar
+  build:
+    needs: build_artifact_name
+    runs-on: windows-latest
+    steps:
+
+      # Getting artifact name from the previous job
+      - name: checkout
+        uses: actions/checkout@v1
+      - name: Download Artifact Name
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact_name
+      - name: Get artifact name
+        id: get_artifact
+        run: |
+          echo "::set-output name=name::$(cat package_name.txt)"
+
+
+      # Set up Sonar
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.11
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v1
+        with:
+          path: ~\sonar\cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v1
+        with:
+          path: .\.sonar\scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          New-Item -Path .\.sonar\scanner -ItemType Directory
+          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+
+      # Setup dotnet
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '5.0.x'
+
+
+      # Test, build and analyze
+      - name: dotnet restore
+        run: dotnet restore ${{ env.SLN_PATH }}
+      - name: dotnet test
+        run: dotnet test  ${{ env.SLN_PATH }} --configuration Release --logger GitHubActions --no-restore
+      - name: Publish and Pack Web App
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        shell: powershell
+        run: |
+          Write-Host ${{steps.get_artifact.outputs.name}}
+        
+          $repo = '${{github.repository}}'
+          $repo = $repo -replace '/','_'
+          Write-Host $repo
+
+          .\.sonar\scanner\dotnet-sonarscanner begin /k:$repo /o:"nationalresearchcorporation" /d:sonar.login="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
+          dotnet publish  ${{ env.CSPROJ_PATH }} -c Release -o  ${{ env.PUBLISH_PATH }} --no-restore
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.login="${{ secrets.SONAR_TOKEN }}"
+          Compress-Archive ${{ env.PUBLISH_PATH }}\* ${{steps.get_artifact.outputs.name}}.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: published_webapp
+          path: ./${{steps.get_artifact.outputs.name}}.zip
+
+
+  # This job uploads artifact to the Octopus Deploy
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+
+      # Connecting to the company VPN
+      - uses: actions/checkout@v1
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v2
+        with:
+          repository: NationalResearchCorporation/nrchealth-custom-actions
+          token: ${{ secrets.CUSTOM_ACTIONS_GIT_HUB_TOKEN }} # stored in GitHub secrets
+          path: ./.github/actions
+          ref: 'connect-to-vpn-v1-latest'
+
+
+      - name: Install Open VPN
+        run: | 
+          sudo apt install apt-transport-https
+          sudo wget https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub
+          sudo apt-key add openvpn-repo-pkg-key.pub
+          sudo wget -O /etc/apt/sources.list.d/openvpn3.list https://swupdate.openvpn.net/community/openvpn3/repos/openvpn3-bionic.list
+          sudo apt update
+          sudo apt install openvpn3
+      - name: Start Open VPN 3
+        continue-on-error: true
+        env:
+          USER_CERT: ${{secrets.USER_CRT}}
+          USER_SECRET: ${{secrets.USER_KEY}}
+          CA_CERT: ${{secrets.CA_CRT}}
+        run: |
+          echo $CA_CERT >> /tmp/ca.crt
+          echo $USER_CERT >> /tmp/user.crt
+          cat /tmp/user.crt
+          echo $USER_SECRET >> /tmp/user.key
+          sudo cp .github/actions/connect_to_vpn/shared-services.ovpn /etc/openvpn3/
+          cd /tmp
+          ##Adding end of line and replace white-spaces with \n
+          sed 's/ /|/22' user.crt > copy.crt
+          sed 's/ /|/1' copy.crt > copy2.crt
+          cat copy2.crt | tr " " "\n" > copy3.crt
+          cat copy3.crt | tr "|" " " > user.crt
+          rm -rf copy*
+          ##Adding end of line and replace white-spaces with \n
+          sed 's/ /|/21' ca.crt > copy.crt
+          sed 's/ /|/1' copy.crt > copy2.crt
+          cat copy2.crt | tr " " "\n" > copy3.crt
+          cat copy3.crt | tr "|" " " > ca.crt
+          rm -rf copy*       
+          ##Adding end of line and replace white-spaces with \n
+          sed 's/ /|/31' user.key > copy.crt
+          sed 's/ /|/30' copy.crt > copy2.crt
+          sed 's/ /|/2' copy2.crt > copy.crt
+          sed 's/ /|/1' copy.crt > copy2.crt
+          cat copy2.crt | tr " " "\n" > copy3.crt
+          cat copy3.crt | tr "|" " " > user.key
+          ##
+          rm -rf copy* 
+          sudo cp -r /tmp/* /etc/openvpn3/
+          openvpn3 config-import --config /etc/openvpn3/shared-services.ovpn --name "DevProd"
+          openvpn3 session-start --config "DevProd" 
+
+
+      # Getting artifact from the previous job
+      - name: Get the version
+        id: get_tag
+        run: |
+          echo "::set-output name=VERSION::$(echo ${{GITHUB.REF}} | cut -d'-' -f 2)"
+      - name: Download Artifact Name
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact_name
+      - name: Download Artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: published_webapp
+
+      # Installing Octopus CLI    
+      - name: install Octopus Deploy CLI
+        uses: OctopusDeploy/install-octocli@v1
+        with:
+          version: 7.4.2
+          
+      # Pushing the artifact to OD
+      - name: Push to Octopus
+        run: |
+          package_name=`cat package_name.txt`
+          echo $package_name
+          octo push --package="$package_name.zip" --server="${{ secrets.OCTOPUS_SERVER }}" --apiKey="${{ secrets.OCTOPUS_APIKEY }}"
+
+
+
