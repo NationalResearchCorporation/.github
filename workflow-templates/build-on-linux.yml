@@ -53,53 +53,25 @@ jobs:
         uses: OctopusDeploy/install-octocli@v1
         with:
           version: 7.4.2
-
-      # Connecting to the company VPN
-      - name: Install Open VPN
-        run: | 
-          sudo apt install apt-transport-https
-          sudo wget https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub
-          sudo apt-key add openvpn-repo-pkg-key.pub
-          sudo wget -O /etc/apt/sources.list.d/openvpn3.list https://swupdate.openvpn.net/community/openvpn3/repos/openvpn3-bionic.list
-          sudo apt update
-          sudo apt install openvpn3
+          
+      # Connect to company VPN
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v2
+        with:
+          repository: NationalResearchCorporation/nrchealth-custom-actions
+          token: ${{ secrets.CUSTOM_ACTIONS_GIT_HUB_TOKEN }} # stored in GitHub secrets
+          path: ./.github/actions
+          ref: 'connect-to-vpn-v.1-latest'
+          
       - name: Start Open VPN 3
-        continue-on-error: true
+        continue-on-error: false
         env:
-          USER_CERT: ${{secrets.USER_CRT}}
-          USER_SECRET: ${{secrets.USER_KEY}}
-          CA_CERT: ${{secrets.CA_CRT}}
+          USER_CERT: ${{ secrets.USER_CRT }}
+          USER_SECRET: ${{ secrets.USER_KEY }}
+          CA_CERT: ${{ secrets.CA_CRT }}
         run: |
-          echo $CA_CERT >> /tmp/ca.crt
-          echo $USER_CERT >> /tmp/user.crt
-          cat /tmp/user.crt
-          echo $USER_SECRET >> /tmp/user.key
-          sudo cp .github/actions/connect_to_vpn/shared-services.ovpn /etc/openvpn3/
-          cd /tmp
-          ##Adding end of line and replace white-spaces with \n
-          sed 's/ /|/22' user.crt > copy.crt
-          sed 's/ /|/1' copy.crt > copy2.crt
-          cat copy2.crt | tr " " "\n" > copy3.crt
-          cat copy3.crt | tr "|" " " > user.crt
-          rm -rf copy*
-          ##Adding end of line and replace white-spaces with \n
-          sed 's/ /|/21' ca.crt > copy.crt
-          sed 's/ /|/1' copy.crt > copy2.crt
-          cat copy2.crt | tr " " "\n" > copy3.crt
-          cat copy3.crt | tr "|" " " > ca.crt
-          rm -rf copy*       
-          ##Adding end of line and replace white-spaces with \n
-          sed 's/ /|/31' user.key > copy.crt
-          sed 's/ /|/30' copy.crt > copy2.crt
-          sed 's/ /|/2' copy2.crt > copy.crt
-          sed 's/ /|/1' copy.crt > copy2.crt
-          cat copy2.crt | tr " " "\n" > copy3.crt
-          cat copy3.crt | tr "|" " " > user.key
-          ##
-          rm -rf copy* 
-          sudo cp -r /tmp/* /etc/openvpn3/
-          openvpn3 config-import --config /etc/openvpn3/shared-services.ovpn --name "DevProd"
-          openvpn3 session-start --config "DevProd"    
+          chmod +x .github/actions/connect_to_vpn/scripts/action.sh
+          .github/actions/connect_to_vpn/scripts/action.sh
           
       # Pushing the artifact to OD
       - name: Push to Octopus
