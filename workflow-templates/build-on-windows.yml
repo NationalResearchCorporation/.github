@@ -26,7 +26,7 @@ jobs:
           repository: NationalResearchCorporation/nrchealth-custom-actions
           token: ${{ secrets.CUSTOM_ACTIONS_GIT_HUB_TOKEN }} # stored in GitHub secrets
           path: ./.github/actions
-          ref: 'build-artifact-name-v.1-latest'
+          ref: 'build-artifact-name-v.1.1-latest'
       - name: build_artifact_name
         id:   build_artifact_name
         uses: ./.github/actions/build_artifact_name
@@ -52,7 +52,7 @@ jobs:
       - name: Get artifact name
         id: get_artifact
         run: |
-          echo "::set-output name=name::$(cat package_name.txt)"
+          echo "name=$(cat package_name.txt)" >> $env:GITHUB_OUTPUT
 
       # YOUR BUILD INSTRACTIONS
       - name: build
@@ -77,7 +77,7 @@ jobs:
       - name: Get the version
         id: get_tag
         run: |
-          echo "::set-output name=VERSION::$(echo ${{GITHUB.REF}} | cut -d'-' -f 2)"
+          echo "VERSION=$(echo ${{GITHUB.REF}} | cut -d'-' -f 2)" >> $GITHUB_OUTPUT
       - name: Download Artifact Name
         uses: actions/download-artifact@v2
         with:
