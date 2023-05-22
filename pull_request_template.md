@@ -1,0 +1,6 @@
+- [ ] Build is using GHA instead of TeamCity
+- [ ] Sonar is setup for this repo
+- [ ] Sonar reports code coverage
+- [ ] AWS Tags are set up
+- [ ] Dependabot is setup for all the manifests in this repo (including GHA)
+- [ ] Dependabot PRs and alerts are reviewed
