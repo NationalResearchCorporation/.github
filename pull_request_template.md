@@ -4,4 +4,4 @@
 - [ ] AWS Tags are set up
 - [ ] Dependabot PRs and alerts are reviewed
 - [ ] Communicated with PSG if new monitoring has to be set up (or changes required)
-- [ ] Communicated with DBA, if there are any DB structure changes (e.g., index changes)
+- [ ] Communicated with DBA if there are any DB structure changes (e.g., index changes)
