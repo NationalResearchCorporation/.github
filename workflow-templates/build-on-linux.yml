@@ -26,7 +26,7 @@ jobs:
           repository: NationalResearchCorporation/nrchealth-custom-actions
           token: ${{ secrets.CUSTOM_ACTIONS_GIT_HUB_TOKEN }} # stored in GitHub secrets
           path: ./.github/actions
-          ref: 'build-artifact-name-v.1-latest'
+          ref: 'build-artifact-name-v.1.1-latest'
       - name: build_artifact_name
         id:   build_artifact_name
         uses: ./.github/actions/build_artifact_name
